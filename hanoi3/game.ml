@@ -157,17 +157,21 @@ let end_with (world : world_t) : world_t =
         else {world with remaining = m - total_moved}
       end
          
-let block_button_down (x : float) (y : float) (d : disk_t) : disk_t =
-  match d with {left_top = (left, top); size = s} ->
-    let right = left +. (s *. disk_module) in
-    let bottom = top +. disk_module in
-    if (left <= x) && (x <= right) && (top <= y) && (y <= bottom)
-    then                        (* ブロックの中心座標 = マウスの座標 *)
-      let new_left = x -. (s *. disk_module /. 2.) in
-      let new_top = y -. (disk_module /. 2.) in
-      {d with prev = Some (left, top);
-              left_top = (new_left, new_top)}
-    else d
+let block_button_down (world : world_t) (x : float) (y : float) (d : disk_t) : disk_t =
+  let current_bar = on_which_bar x y in
+  match fetch_bar_info world current_bar with
+  | {disk_sizes = sizes} ->
+    let min_size = List.fold_left (min) max_float sizes in
+    match d with {left_top = (left, top); size = s} ->
+      let right = left +. (s *. disk_module) in
+      let bottom = top +. disk_module in
+      if (left <= x) && (x <= right) && (top <= y) && (y <= bottom) && (s <= min_size)
+      then        (* ブロックの中心座標 = マウスの座標 かつ 一番小さい（一番上の）ブロック *)
+        let new_left = x -. (s *. disk_module /. 2.) in
+        let new_top = y -. (disk_module /. 2.) in
+        {d with prev = Some (left, top);
+                left_top = (new_left, new_top)}
+      else d
 
 let block_button_up (world : world_t) (x : float) (y : float) (d : disk_t) : disk_t =
   match d with
@@ -181,22 +185,24 @@ let block_button_up (world : world_t) (x : float) (y : float) (d : disk_t) : dis
     match fetch_bar_info world current_bar with
     | {height = h; disk_sizes = sizes} ->
       let top_size = List.fold_left (max) 0. sizes in
-      if (prev_bar <> current_bar) &&
-         ((disk_size <= top_size) || (top_size = 0.))(* 動かせるなら移動 *)
+      if (prev_bar <> current_bar) &&                 (* 元の軸と違う軸で手を離した *)
+         (current_bar <> 0) &&                        (* いずれかの軸の上で手を離した *)
+         ((disk_size <= top_size) ||                  (* その軸の最小の輪より小さい、または *)
+          (top_size = 0.))                            (* 軸にまだ１つも輪がない *)
       then
         {d with left_top = make_left_top current_bar (h +. 1.) disk_size;
                 prev = None;
                 moved = mvd + 1;
                 pos = h +. 1.;
                 bar = current_bar}
-      else {d with left_top = (prev_left, prev_top); (* 動かせなければ元の位置に戻す *)
+      else {d with left_top = (prev_left, prev_top);  (* 動かせなければ元の位置に戻す *)
                    prev = None}
 
 let on_mouse_button_down (world : world_t) (x : float) (y : float) : world_t =
   if on_reset_button x y then initial_world
   else 
     match world with {disks = ds; msg = msg} ->
-      {world with disks = List.map (block_button_down x y) ds}
+      {world with disks = List.map (block_button_down world x y) ds}
 
 let on_mouse_button_up (world : world_t) (x : float) (y : float) : world_t =
   match world with {disks = ds} ->
