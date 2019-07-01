@@ -10,24 +10,27 @@ type bar_t = {
 }
 
 type disk_t = {
-  left_top : float * float;     (* 左上の座標 *)
-  prev     : (float * float) option;
-                                (* 一つ前の座標 *)
-  size     : float;             (* 輪の大きさ1,2,3 *)
-  bar      : int;               (* 軸 左から1,2,3 *)
-  pos      : float;             (* 軸のどの高さにあるか *)
-  moved    : int;               (* この輪を動かした回数 *)
-  color    : Color.t;
+  left_top : float * float;          (* 左上の座標 *)
+  prev     : (float * float) option; (* 一つ前の座標 *)
+  size     : float;                  (* 輪の大きさ1,2,3 *)
+  bar      : int;                    (* 軸 左から1,2,3 *)
+  pos      : float;                  (* 軸のどの高さにあるか *)
+  moved    : int;                    (* この輪を動かした回数 *)
+  history  : (int * (float * int)) list;
+             (* この輪を動かした履歴 (動かしたときの残りの回数, サイズ, 軸の番号) *)
+  color    : Color.t;                (* 輪の色 *)
 }
 
 type mode_t = Disk3 | Disk5
 
 type world_t = {
-  disks : disk_t list;          (* 輪 *)
-  move  : int;                  (* 動かすことができる既定の回数 *)
-  remaining : int;              (* 残りの回数 *)
-  mode  : mode_t;               (* 輪の枚数 *)
-  msg   : string;               (* debugging *)
+  disks     : disk_t list;        (* 輪 *)
+  move      : int;                (* 動かすことができる既定の回数 *)
+  remaining : int;                (* 残りの回数 *)
+  mode      : mode_t;             (* 輪の枚数 *)
+  history   : (int * (float * int)) list;
+              (* 輪を動かした全履歴 (動かしたときの残りの回数, 輪のサイズ, 軸の番号) *)
+  msg       : string;             (* 画面上部のメッセージ *)
 }
 
 (***** 定数 *****)
@@ -68,13 +71,14 @@ let make_left_top (bar : int) (pos : float) (size : float) : (float * float) =
   (current_bar -. ((disk_module *. size) /. 2.),
    bar_bot -. (disk_module *. pos))
   
-let make_disk size bar pos moved color : disk_t = {
+let make_disk size bar pos moved history color : disk_t = {
   left_top = make_left_top bar pos size;
   prev = None;
   size = size;
   bar = bar;
   pos = pos;
   moved = moved;
+  history = history;
   color = color;
 }
 
@@ -91,62 +95,72 @@ let draw world = match world with {disks = d; remaining = m; msg = msg} ->
   let with_moves =
     place_image
       (text (string_of_int m) gray10)
-      (width -. 40., 0.)
+      (width -. 35., 5.)
       with_disks in
   let with_reset_button =
     place_image
       (text "reset" gray10)
       (7., 4.)
       (place_image
-         (rectangle 55. 25. gray80)
-         (5., 5.)      
+         (rectangle 55. 25. ~fill:false gray80)
+         (5., 5.)
          with_moves) in
   let with_disk3_button =
     place_image
       (text "3" gray10)
       (71., 5.)
       (place_image
-         (rectangle 20. 25. gray80)
-         (68., 5.)      
+         (rectangle 20. 25. ~fill:false gray80)
+         (68., 5.)
          with_reset_button) in
   let with_disk5_button =
     place_image
       (text "5" gray10)
       (98., 5.)
       (place_image
-         (rectangle 20. 25. gray80)
-         (95., 5.)      
+         (rectangle 20. 25. ~fill:false gray80)
+         (95., 5.)
          with_disk3_button) in
+  let with_undo_button =
+    place_image
+      (text "undo" gray10)
+      (500., 5.)
+      (place_image
+         (rectangle 55. 25. ~fill:false gray80)
+         (498., 5.)
+         with_disk5_button) in
   let with_msg =
     place_image
       (text msg gray10)
       (width /. 2., 0.)
-      with_disk5_button in
+      with_undo_button in
   with_msg
 
 let initial_world_3 = {
   disks = [
-    make_disk 1. 1 3. 0 gray20;
-    make_disk 2. 1 2. 0 gray50;
-    make_disk 3. 1 1. 0 gray80;
+    make_disk 1. 1 3. 0 [] gray20;
+    make_disk 2. 1 2. 0 [] gray50;
+    make_disk 3. 1 1. 0 [] gray80;
   ];
   move = 10;
   remaining = 10;
   mode = Disk3;
+  history = [];
   msg = "";
 }
 
 let initial_world_5 = {
   disks = [
-    make_disk 1. 1 5. 0 gray10;
-    make_disk 2. 1 4. 0 gray30;
-    make_disk 3. 1 3. 0 gray50;
-    make_disk 4. 1 2. 0 gray70;
-    make_disk 5. 1 1. 0 gray90;
+    make_disk 1. 1 5. 0 [] gray10;
+    make_disk 2. 1 4. 0 [] gray30;
+    make_disk 3. 1 3. 0 [] gray50;
+    make_disk 4. 1 2. 0 [] gray70;
+    make_disk 5. 1 1. 0 [] gray90;
   ];
   move = 35;
   remaining = 35;
   mode = Disk5;
+  history = [];
   msg = "";
 }
 
@@ -187,20 +201,39 @@ let on_disk5_button (x : float) (y : float) : bool =
   then true
   else false
 
+let on_undo_button (x : float) (y : float) : bool =
+  if (498. <= x) && (x <= 553.) && (5. <= y) && (y <= 30.)
+  then true
+  else false
+
+let has_game_finshed (world : world_t) : bool = match world with
+  | {disks = ds} ->
+    let {height = h3} = fetch_bar_info world 3 in
+    let {height = h2} = fetch_bar_info world 2 in
+    (h3 = float_of_int (List.length ds)) || (* 一番右の軸に完成させた、もしくは *)
+    (h2 = float_of_int (List.length ds))    (* 真ん中の軸に完成させた *)
+    
 (***** マウス処理 *****)
 let end_with (world : world_t) : world_t =
   match world with {disks = ds; move = m} ->
-  match fetch_bar_info world 3 with {height = h3} ->
-  match fetch_bar_info world 2 with {height = h2} ->
     let total_moved =
       List.fold_left (+) 0 (List.map (fun {moved = mvd} -> mvd) ds) in
-    if (h3 = float_of_int (List.length ds)) || (* 一番右の軸に完成させた、もしくは *)
-       (h2 = float_of_int (List.length ds))    (* 真ん中の軸に完成させた *)
-    then {world with remaining = m - total_moved; msg = "; )"}
+    let current_history =
+      List.sort                 (* remaining が小さい順に並べる = [新 :: 古] の順になる *)
+        (fun (key1, _) -> fun (key2, _) ->
+           if key1 > key2 then 1
+           else if key1 < key2 then (-1)
+           else 0)
+        (List.fold_left (@) [] (List.map (fun {history = h; color = _} -> h) ds)) in
+    if has_game_finshed world
+    then {world with remaining = m - total_moved;
+                     history = current_history;
+                     msg = "; )"}
     else
       begin
-        if total_moved = m                 (* 既定回数に到達 *)
+        if total_moved = m                 (* 完成することなく既定回数に到達 *)
         then {world with remaining = m - total_moved;
+                         history = current_history;
                          msg = "try again"}
         else if total_moved > m then world (* 既定回数以上は操作回数が減らない *)
         else {world with remaining = m - total_moved}
@@ -226,19 +259,21 @@ let block_button_down (world : world_t) (x : float) (y : float) (d : disk_t) : d
           else d
 
 let block_button_up (world : world_t) (x : float) (y : float) (d : disk_t) : disk_t =
+  match world with {remaining = remaining} ->
   match d with
-  | {prev = None} -> d
+  | {prev = None} -> d          (* button_down で動かすことができないブロックは、ドラッグ先には移動できない *)
   | {left_top = (left, top);
      prev = Some (prev_left, prev_top);
      size = disk_size;
      bar = prev_bar;
-     moved = mvd} ->
+     moved = mvd;
+     history = prev_history} ->
     let current_bar = on_which_bar x y in
     match fetch_bar_info world current_bar with
     | {height = h; disk_sizes = sizes} ->
       let top_size = List.fold_left (max) 0. sizes in
       if (prev_bar <> current_bar) &&                 (* 元の軸と違う軸で手を離した *)
-         (current_bar <> 0) &&                        (* いずれかの軸の上(=背景ではない)で手を離した *)
+         (current_bar <> 0) &&                        (* いずれかの軸の上で手を離した *)
          ((disk_size <= top_size) ||                  (* その軸の最小の輪より小さい、または *)
           (top_size = 0.))                            (* 軸にまだ１つも輪がない *)
       then
@@ -246,7 +281,8 @@ let block_button_up (world : world_t) (x : float) (y : float) (d : disk_t) : dis
                 prev = None;
                 moved = mvd + 1;
                 pos = h +. 1.;
-                bar = current_bar}
+                bar = current_bar;
+                history = (remaining, (disk_size, prev_bar)) :: prev_history}
       else {d with left_top = (prev_left, prev_top);  (* 動かせなければ元の位置に戻す *)
                    prev = None}
 
@@ -271,7 +307,7 @@ let on_mouse (world : world_t) (x : float) (y : float) (mouse_event : string)
   match mouse_event with
   | "button_down" | "drag" -> on_mouse_button_down world x y
   | "button_up" -> on_mouse_button_up world x y
-  | _ -> {world with msg = "(" ^ (string_of_float x) ^ ", " ^ (string_of_float y) ^ ")"}
+  | _ -> world
 
 let _ =
   big_bang initial_world_3
