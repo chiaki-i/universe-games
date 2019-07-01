@@ -39,6 +39,7 @@ let bar1 = 100.
 let bar2 = 300.
 let bar3 = 500.
 let bar_bot = 350.
+let bar_width = 80.
 
 (* 軸の定義 *)
 let bars = [
@@ -163,9 +164,12 @@ let fetch_bar_info (world : world_t) (num : int) : bar_t =
 
 (***** inside? valid? *****)
 let on_which_bar (x : float) (y : float) : int =
-  if (50. <= x) && (x <= 150.) && (150. <= y) && (y <= 370.) then 1
-  else if (250. <= x) && (x <= 350.) && (150. <= y) && (y <= 370.) then 2
-  else if (450. <= x) && (x <= 550.) && (150. <= y) && (y <= 370.) then 3
+  if ((bar1 -. bar_width) <= x) && (x <= (bar1 +. bar_width))
+     && (150. <= y) && (y <= 370.) then 1
+  else if (bar2 -. bar_width <= x) && (x <= bar2 +. bar_width)
+          && (150. <= y) && (y <= 370.) then 2
+  else if (bar3 -. bar_width <= x) && (x <= bar3 +. bar_width)
+          && (150. <= y) && (y <= 370.) then 3
   else 0
 
 let on_reset_button (x : float) (y : float) : bool =
@@ -179,7 +183,7 @@ let on_disk3_button (x : float) (y : float) : bool =
   else false
 
 let on_disk5_button (x : float) (y : float) : bool =
-  if (95. <= x) && (x <= 105.) && (5. <= y) && (y <= 30.)
+  if (95. <= x) && (x <= 115.) && (5. <= y) && (y <= 30.)
   then true
   else false
 
