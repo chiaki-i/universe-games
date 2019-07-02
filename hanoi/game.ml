@@ -132,7 +132,7 @@ let draw world = match world with {disks = d; remaining = m; msg = msg} ->
   let with_msg =
     place_image
       (text msg gray10)
-      (width /. 2., 0.)
+      (width /. 2. -. 30., 5.)
       with_undo_button in
   with_msg
 
@@ -235,8 +235,12 @@ let end_with (world : world_t) : world_t =
         then {world with remaining = m - total_moved;
                          history = current_history;
                          msg = "try again"}
-        else if total_moved > m then world (* 既定回数以上は操作回数が減らない *)
-        else {world with remaining = m - total_moved}
+        else if total_moved > m            (* 既定回数以上は操作回数が減らない *)
+        then {world with history = current_history;
+                         msg = "try again"}
+        else                               (* それ以外は普通に回数が減る *)
+          {world with remaining = m - total_moved;
+                      history = current_history}
       end
          
 let block_button_down (world : world_t) (x : float) (y : float) (d : disk_t) : disk_t =
@@ -286,6 +290,42 @@ let block_button_up (world : world_t) (x : float) (y : float) (d : disk_t) : dis
       else {d with left_top = (prev_left, prev_top);  (* 動かせなければ元の位置に戻す *)
                    prev = None}
 
+let rec remove_with_key (key : 'a) (lst : ('a * 'b) list) = match lst with
+  | [] -> lst
+  | (fst_key, _) as first :: rest ->
+    if fst_key = key then rest  (* key と一致する要素は消す *)
+    else first :: remove_with_key key rest
+
+let undo_history (world : world_t) =
+  match world with {history = history; disks = disks} ->
+  match history with
+  | [] -> {world with msg = "no further undo"}
+  | (recent_key, (recent_size, recent_bar)) :: _ ->
+    let disk_with_recent_history : disk_t list =
+      List.map
+        (fun disk -> match disk with {history = disk_history; color = _} ->
+            {disk with history = remove_with_key recent_key disk_history})
+        disks
+    in
+    let recent_disk : disk_t list =
+      List.map
+        (fun disk -> match disk with {size = size; moved = moved} ->
+            if size = recent_size then
+              let recent_height = match fetch_bar_info world recent_bar with
+                | {height = height} -> height in
+              let recent_pos = recent_height +. 1. in
+              let recent_left_top =
+               make_left_top recent_bar recent_pos recent_size in
+              {disk with left_top = recent_left_top;
+                         size = recent_size;
+                         bar = recent_bar;
+                         pos = recent_pos;
+                         moved = moved - 1}
+            else disk)
+        disk_with_recent_history
+    in
+    {world with disks = recent_disk; msg = ""}
+
 let on_mouse_button_down (world : world_t) (x : float) (y : float) : world_t =
   match world with {mode = current_mode; disks = ds; msg = msg} -> 
     if on_reset_button x y then
@@ -294,8 +334,11 @@ let on_mouse_button_down (world : world_t) (x : float) (y : float) : world_t =
       (if current_mode = Disk3 then world else initial_world_3)
     else if on_disk5_button x y then
       (if current_mode = Disk5 then world else initial_world_5)
+    else if on_undo_button x y then
+      undo_history world
     else
-      {world with disks = List.map (block_button_down world x y) ds}
+      {world with disks = List.map (block_button_down world x y) ds;
+                  msg = ""}
 
 let on_mouse_button_up (world : world_t) (x : float) (y : float) : world_t =
   match world with {disks = ds} ->
