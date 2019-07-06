@@ -5,8 +5,8 @@ open World
 
 (***** 型定義 ******)
 type bar_t = {
-  height     : float;             (* 軸に通されている輪の数 *)
-  disk_sizes : float list;        (* 軸に通されている輪のサイズ *)
+  height   : float;                (* 軸に通されている輪の数 *)
+  pos_size : (float * float) list; (* 軸に通されている輪のサイズ *)
 }
 
 type disk_t = {
@@ -166,15 +166,10 @@ let initial_world_5 = {
 
 let fetch_bar_info (world : world_t) (num : int) : bar_t =
   match world with {disks = ds} ->
-    let current_sizes =
-      List.map
-        (function Some x -> x | None -> 0.)
-        (List.filter
-           (function Some x -> true | None -> false)
-           (List.map (fun {bar = b; size = s} -> if b = num then Some s else None) ds))
-    in
-    let current_height = List.length current_sizes in
-    {height = float_of_int current_height; disk_sizes = current_sizes}
+    let current_disks = List.filter (fun {bar = b} -> b = num) ds in
+    let current_sizes = List.map (fun {size = s; pos = p} -> (p, s)) current_disks in
+    let current_height = float_of_int (List.length current_disks) in
+    {height = current_height; pos_size = current_sizes}
 
 (***** inside? valid? *****)
 let on_which_bar (x : float) (y : float) : int =
@@ -249,7 +244,8 @@ let block_button_down (world : world_t) (x : float) (y : float) (d : disk_t) : d
     if remaining = 0 then d
     else
       match fetch_bar_info world current_bar with
-      | {disk_sizes = sizes} ->
+      | {pos_size = ps; height = height} ->
+        let sizes = List.map (fun (p, s) -> s) ps in
         let min_size = List.fold_left (min) max_float sizes in
         match d with {left_top = (left, top); size = s} ->
           let right = left +. (s *. disk_module) in
@@ -274,8 +270,9 @@ let block_button_up (world : world_t) (x : float) (y : float) (d : disk_t) : dis
      history = prev_history} ->
     let current_bar = on_which_bar x y in
     match fetch_bar_info world current_bar with
-    | {height = h; disk_sizes = sizes} ->
-      let top_size = List.fold_left (max) 0. sizes in
+    | {height = h; pos_size = ps} ->
+      let sizes = List.map (fun (p, s) -> s) ps in
+      let top_size = List.fold_left (min) max_float sizes in
       if (prev_bar <> current_bar) &&                 (* 元の軸と違う軸で手を離した *)
          (current_bar <> 0) &&                        (* いずれかの軸の上で手を離した *)
          ((disk_size <= top_size) ||                  (* その軸の最小の輪より小さい、または *)
